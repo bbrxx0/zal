@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Realtime Chat Web</title>
+</head>
+<body>
+<h2>Realtime Chat</h2>
+<div id="messages"></div>
+<input id="input" placeholder="Message"/>
+<button onclick="sendMessage()">Send</button>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+const API = 'http://server:3000';
+let token = localStorage.getItem('token') || '';
+const socket = io(API);
+const loadedMessages = new Set(); // Track loaded message IDs for deduplication
+const MAX_DOM_MESSAGES = 1000; // Prevent unbounded DOM growth
+
+socket.on('new_message', msg => {
+    if (!loadedMessages.has(msg.id)) {
+        addMessage(msg);
+    }
+});
+socket.on('update_message', msg => updateMessage(msg));
+socket.on('delete_message', msg => removeMessage(msg));
+
+function addMessage(msg){
+    // Prevent duplicate messages
+    if (loadedMessages.has(msg.id)) return;
+    
+    // Remove oldest message if we hit the limit
+    if (loadedMessages.size >= MAX_DOM_MESSAGES) {
+        const messagesDiv = document.getElementById('messages');
+        if (messagesDiv.firstChild) {
+            const oldestId = parseInt(messagesDiv.firstChild.id.replace('msg-', ''));
+            messagesDiv.firstChild.remove();
+            loadedMessages.delete(oldestId);
+        }
+    }
+    
+    const div = document.createElement('div');
+    div.id = 'msg-'+msg.id;
+    div.textContent = msg.text;
+    document.getElementById('messages').appendChild(div);
+    loadedMessages.add(msg.id);
+}
+
+function updateMessage(msg){
+    const div = document.getElementById('msg-'+msg.id);
+    if(div) div.textContent = msg.text;
+}
+
+function removeMessage(msg){
+    const div = document.getElementById('msg-'+msg.id);
+    if(div) {
+        div.remove();
+        loadedMessages.delete(msg.id);
+    }
+}
+
+async function sendMessage(){
+    const text = document.getElementById('input').value;
+    const trimmedText = text ? text.trim() : '';
+    if(!trimmedText) return;
+    
+    // Validate input length
+    if (trimmedText.length > 10000) {
+        alert('Message too long (max 10000 characters)');
+        return;
+    }
+    
+    try {
+        const res = await fetch(API+'/messages', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','Authorization':'Bearer '+token},
+            body: JSON.stringify({text: trimmedText})
+        });
+        
+        if (!res.ok) {
+            const error = await res.json();
+            alert('Error: ' + (error.error || 'Failed to send message'));
+            return;
+        }
+        
+        const msg = await res.json();
+        document.getElementById('input').value='';
+    } catch (error) {
+        alert('Network error: ' + error.message);
+    }
+}
+
+// Simple login
+if(!token){
+    const username = prompt('Enter username:');
+    if (username) {
+        fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})})
+        .then(r=>{
+            if (!r.ok) throw new Error('Login failed');
+            return r.json();
+        })
+        .then(r=>{
+            token=r.token; 
+            localStorage.setItem('token', token); 
+            loadMessages();
+        })
+        .catch(err => alert('Login error: ' + err.message));
+    }
+} else {
+    loadMessages();
+}
+
+async function loadMessages(){
+    try {
+        const res = await fetch(API+'/messages?limit=100&offset=0',{
+            headers:{'Authorization':'Bearer '+token}
+        });
+        
+        if (!res.ok) {
+            throw new Error('Failed to load messages');
+        }
+        
+        const data = await res.json();
+        const msgs = data.messages || data; // Support both old and new API format
+        
+        // Use DocumentFragment for batch DOM updates (better performance)
+        const fragment = document.createDocumentFragment();
+        msgs.forEach(msg => {
+            if (!loadedMessages.has(msg.id)) {
+                const div = document.createElement('div');
+                div.id = 'msg-'+msg.id;
+                div.textContent = msg.text;
+                fragment.appendChild(div);
+                loadedMessages.add(msg.id);
+            }
+        });
+        document.getElementById('messages').appendChild(fragment);
+    } catch (error) {
+        console.error('Error loading messages:', error);
+        alert('Failed to load messages: ' + error.message);
+    }
+}
+</script>
+</body>
+</html>

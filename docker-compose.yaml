@@ -1,0 +1,20 @@
+services:
+  server:
+    build: ./server
+    container_name: server
+    ports:
+      - "3000:3000"
+
+  client-web:
+    build: ./client-web
+    container_name: client-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+
+  client-cli:
+    build: ./client-cli
+    container_name: client-cli
+    depends_on:
+      - server
