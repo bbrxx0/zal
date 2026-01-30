@@ -4,7 +4,7 @@ import sys
 
 API = 'http://server:3000'
 sio = socketio.Client()
-token = None
+token = ''
 REQUEST_TIMEOUT = 10  # seconds
 
 @sio.event
